@@ -1,0 +1,25 @@
+version: '3.8'
+
+services:
+  v-ai-cli-control:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      - API_KEY=${API_KEY:-your-api-key-here}
+      - SECRET_KEY=${SECRET_KEY:-your-secret-key-here}
+      - HOST=0.0.0.0
+      - PORT=8000
+      - LOG_LEVEL=info
+      - ALLOWED_COMMANDS=ls,pwd,whoami,ps,df,free,uname,date,uptime,cat,grep,find,which,echo,python3,node,curl
+      - RESTRICTED_PATHS=/etc/shadow,/etc/passwd,/root
+      - MAX_COMMAND_TIMEOUT=30
+    volumes:
+      - /tmp:/tmp  # Allow access to temp directory
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
