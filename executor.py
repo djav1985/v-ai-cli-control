@@ -4,6 +4,7 @@ import time
 import uuid
 import os
 import logging
+import threading
 from typing import Dict, Optional, Tuple, Any, List
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor
@@ -15,6 +16,7 @@ logger = logging.getLogger(__name__)
 
 class CommandExecutor:
     def __init__(self):
+        self._session_lock = threading.RLock()
         self.active_sessions: Dict[str, Any] = {}
         self.current_session_id: Optional[str] = None
         self.executor = ThreadPoolExecutor(max_workers=5)
@@ -119,20 +121,21 @@ class CommandExecutor:
     def _has_active_session(self) -> bool:
         """Check whether a live interactive session is already running."""
 
-        if not self.current_session_id:
-            return False
+        with self._session_lock:
+            if not self.current_session_id:
+                return False
 
-        session = self.active_sessions.get(self.current_session_id)
-        if not session:
-            self.current_session_id = None
-            return False
+            session = self.active_sessions.get(self.current_session_id)
+            if not session:
+                self.current_session_id = None
+                return False
 
-        child = session.get("child")
-        if child is None or not child.isalive():
-            self._cleanup_session(self.current_session_id)
-            return False
+            child = session.get("child")
+            if child is None or not child.isalive():
+                self._cleanup_session(self.current_session_id)
+                return False
 
-        return True
+            return True
 
     def start_interactive_command(
         self,
@@ -157,199 +160,210 @@ class CommandExecutor:
                 execution_time=0.0,
             )
 
-        self.cleanup_inactive_sessions()
+        with self._session_lock:
+            self.cleanup_inactive_sessions()
 
-        if self._has_active_session():
-            active_session = self.active_sessions[self.current_session_id]
-            return "", CommandResponse(
-                success=False,
-                stdout="",
-                stderr="",
-                execution_time=0.0,
-                session_id=self.current_session_id,
-                is_interactive=True,
-                error_message=(
-                    "An interactive session is already active. "
-                    "Terminate the current session before starting a new one."
-                ),
-                command_executed=active_session.get("command"),
-            )
-
-        session_id = str(uuid.uuid4())
-        start_time = time.time()
-
-        try:
-            # Set up environment
-            env = os.environ.copy()
-            if environment:
-                env.update(environment)
-
-            # Start interactive process using pexpect
-            child = pexpect.spawn(command, cwd=working_directory, env=env)
-            child.timeout = 1  # Short timeout for non-blocking reads
-
-            # Store session info
-            self.active_sessions = {
-                session_id: {
-                    "child": child,
-                    "command": command,
-                    "created_at": datetime.now().isoformat(),
-                    "last_activity": datetime.now().isoformat(),
-                    "working_directory": working_directory,
-                }
-            }
-            self.current_session_id = session_id
-
-            # Try to read initial output
-            initial_output = ""
-            try:
-                initial_output = child.read_nonblocking(size=4096, timeout=0.5).decode(
-                    "utf-8", errors="replace"
+            if self._has_active_session():
+                active_session = self.active_sessions[self.current_session_id]
+                return "", CommandResponse(
+                    success=False,
+                    stdout="",
+                    stderr="",
+                    execution_time=0.0,
+                    session_id=self.current_session_id,
+                    is_interactive=True,
+                    error_message=(
+                        "An interactive session is already active. "
+                        "Terminate the current session before starting a new one."
+                    ),
+                    command_executed=active_session.get("command"),
                 )
-            except (pexpect.TIMEOUT, pexpect.EOF):
-                pass
 
-            return session_id, CommandResponse(
-                success=True,
-                stdout=initial_output,
-                execution_time=time.time() - start_time,
-                session_id=session_id,
-                is_interactive=True,
-            )
+            session_id = str(uuid.uuid4())
+            start_time = time.time()
 
-        except Exception as e:
-            return "", CommandResponse(
-                success=False,
-                error_message=f"Failed to start interactive command: {str(e)}",
-                execution_time=time.time() - start_time,
-            )
+            try:
+                # Set up environment
+                env = os.environ.copy()
+                if environment:
+                    env.update(environment)
+
+                # Start interactive process using pexpect
+                child = pexpect.spawn(command, cwd=working_directory, env=env)
+                child.timeout = 1  # Short timeout for non-blocking reads
+
+                # Store session info
+                self.active_sessions = {
+                    session_id: {
+                        "child": child,
+                        "command": command,
+                        "created_at": datetime.now().isoformat(),
+                        "last_activity": datetime.now().isoformat(),
+                        "working_directory": working_directory,
+                    }
+                }
+                self.current_session_id = session_id
+
+                # Try to read initial output
+                initial_output = ""
+                try:
+                    initial_output = child.read_nonblocking(
+                        size=4096, timeout=0.5
+                    ).decode("utf-8", errors="replace")
+                except (pexpect.TIMEOUT, pexpect.EOF):
+                    pass
+
+                return session_id, CommandResponse(
+                    success=True,
+                    stdout=initial_output,
+                    execution_time=time.time() - start_time,
+                    session_id=session_id,
+                    is_interactive=True,
+                )
+
+            except Exception as e:
+                return "", CommandResponse(
+                    success=False,
+                    error_message=f"Failed to start interactive command: {str(e)}",
+                    execution_time=time.time() - start_time,
+                )
 
     def send_interactive_input(
         self, session_id: str, input_text: str
     ) -> CommandResponse:
         """Send input to an interactive command session"""
 
-        if (
-            session_id != self.current_session_id
-            or session_id not in self.active_sessions
-        ):
-            return CommandResponse(
-                success=False, error_message="Session not found", execution_time=0.0
-            )
-
-        start_time = time.time()
-        session = self.active_sessions[session_id]
-        child = session["child"]
-
-        try:
-            # Send input
-            child.sendline(input_text)
-            session["last_activity"] = datetime.now().isoformat()
-
-            # Read response
-            output = ""
-            try:
-                output = child.read_nonblocking(size=4096, timeout=1.0).decode(
-                    "utf-8", errors="replace"
+        with self._session_lock:
+            if (
+                session_id != self.current_session_id
+                or session_id not in self.active_sessions
+            ):
+                return CommandResponse(
+                    success=False,
+                    error_message="Session not found",
+                    execution_time=0.0,
                 )
-            except (pexpect.TIMEOUT, pexpect.EOF) as e:
-                if isinstance(e, pexpect.EOF):
-                    # Process ended
-                    self._cleanup_session(session_id)
-                    return CommandResponse(
-                        success=True,
-                        stdout=output,
-                        execution_time=time.time() - start_time,
-                        session_id=session_id,
-                        is_interactive=False,  # Session ended
+
+            start_time = time.time()
+            session = self.active_sessions[session_id]
+            child = session["child"]
+
+            try:
+                # Send input
+                child.sendline(input_text)
+                session["last_activity"] = datetime.now().isoformat()
+
+                # Read response
+                output = ""
+                try:
+                    output = child.read_nonblocking(size=4096, timeout=1.0).decode(
+                        "utf-8", errors="replace"
                     )
+                except (pexpect.TIMEOUT, pexpect.EOF) as e:
+                    if isinstance(e, pexpect.EOF):
+                        # Process ended
+                        self._cleanup_session(session_id)
+                        return CommandResponse(
+                            success=True,
+                            stdout=output,
+                            execution_time=time.time() - start_time,
+                            session_id=session_id,
+                            is_interactive=False,  # Session ended
+                        )
 
-            return CommandResponse(
-                success=True,
-                stdout=output,
-                execution_time=time.time() - start_time,
-                session_id=session_id,
-                is_interactive=True,
-            )
+                return CommandResponse(
+                    success=True,
+                    stdout=output,
+                    execution_time=time.time() - start_time,
+                    session_id=session_id,
+                    is_interactive=True,
+                )
 
-        except Exception as e:
-            return CommandResponse(
-                success=False,
-                error_message=f"Error sending input: {str(e)}",
-                execution_time=time.time() - start_time,
-                session_id=session_id,
-            )
+            except Exception as e:
+                return CommandResponse(
+                    success=False,
+                    error_message=f"Error sending input: {str(e)}",
+                    execution_time=time.time() - start_time,
+                    session_id=session_id,
+                )
 
     def get_session_info(self, session_id: str) -> Optional[SessionInfo]:
         """Get information about an active session"""
-        self.cleanup_inactive_sessions()
-        if session_id not in self.active_sessions:
-            return None
+        with self._session_lock:
+            self.cleanup_inactive_sessions()
+            if session_id not in self.active_sessions:
+                return None
 
-        session = self.active_sessions[session_id]
-        return SessionInfo(
-            session_id=session_id,
-            command=session["command"],
-            status="active" if session["child"].isalive() else "terminated",
-            created_at=session["created_at"],
-            last_activity=session["last_activity"],
-        )
+            session = self.active_sessions[session_id]
+            return SessionInfo(
+                session_id=session_id,
+                command=session["command"],
+                status="active" if session["child"].isalive() else "terminated",
+                created_at=session["created_at"],
+                last_activity=session["last_activity"],
+            )
 
     def list_active_sessions(self) -> List[SessionInfo]:
         """List all active sessions"""
-        self.cleanup_inactive_sessions()
-        sessions = []
-        for session_id, session_data in self.active_sessions.items():
-            sessions.append(
-                SessionInfo(
-                    session_id=session_id,
-                    command=session_data["command"],
-                    status=(
-                        "active" if session_data["child"].isalive() else "terminated"
-                    ),
-                    created_at=session_data["created_at"],
-                    last_activity=session_data["last_activity"],
+        with self._session_lock:
+            self.cleanup_inactive_sessions()
+            sessions = []
+            for session_id, session_data in self.active_sessions.items():
+                sessions.append(
+                    SessionInfo(
+                        session_id=session_id,
+                        command=session_data["command"],
+                        status=(
+                            "active"
+                            if session_data["child"].isalive()
+                            else "terminated"
+                        ),
+                        created_at=session_data["created_at"],
+                        last_activity=session_data["last_activity"],
+                    )
                 )
-            )
-        return sessions
+            return sessions
 
     def _cleanup_session(self, session_id: str):
         """Clean up a session"""
-        if session_id in self.active_sessions:
-            try:
-                child = self.active_sessions[session_id]["child"]
-                if child.isalive():
-                    child.terminate()
-                    child.wait()
-            except Exception:
-                pass
-            del self.active_sessions[session_id]
-            if self.current_session_id == session_id:
-                self.current_session_id = None
+        with self._session_lock:
+            if session_id in self.active_sessions:
+                try:
+                    child = self.active_sessions[session_id]["child"]
+                    if child.isalive():
+                        child.terminate()
+                        child.wait()
+                except Exception:
+                    pass
+                del self.active_sessions[session_id]
+                if self.current_session_id == session_id:
+                    self.current_session_id = None
 
     def terminate_session(self, session_id: str) -> bool:
         """Terminate a specific session"""
-        if session_id not in self.active_sessions:
-            return False
+        with self._session_lock:
+            if session_id not in self.active_sessions:
+                return False
 
-        try:
-            self._cleanup_session(session_id)
-            return True
-        except Exception:
-            return False
+            try:
+                self._cleanup_session(session_id)
+                return True
+            except Exception:
+                return False
 
     def cleanup_inactive_sessions(self):
         """Clean up terminated or inactive sessions"""
-        inactive_sessions = []
-        for session_id, session_data in list(self.active_sessions.items()):
-            if not session_data["child"].isalive():
-                inactive_sessions.append(session_id)
+        with self._session_lock:
+            inactive_sessions = []
+            for session_id, session_data in list(self.active_sessions.items()):
+                if not session_data["child"].isalive():
+                    inactive_sessions.append(session_id)
 
-        for session_id in inactive_sessions:
-            self._cleanup_session(session_id)
+            for session_id in inactive_sessions:
+                self._cleanup_session(session_id)
 
-        if not self.active_sessions:
-            self.current_session_id = None
+            if not self.active_sessions:
+                self.current_session_id = None
 
 
 # Global executor instance
