@@ -5,13 +5,18 @@ Simple test script to verify the V-AI CLI Control API is working correctly.
 
 import sys
 import os
-sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 from fastapi.testclient import TestClient
-from main import app
+import main
+
+API_KEY_VALUE = "test-api-key"
+os.environ.setdefault("API_KEY", API_KEY_VALUE)
+main.API_KEY = API_KEY_VALUE
 
 # Create test client
-client = TestClient(app)
+client = TestClient(main.app)
+HEADERS = {"Authorization": f"Bearer {API_KEY_VALUE}"}
+
 
 def test_health_check():
     """Test the health check endpoint"""
@@ -22,35 +27,35 @@ def test_health_check():
     assert data["status"] == "healthy"
     print("✓ Health check passed")
 
+
 def test_simple_command():
     """Test simple command execution"""
     print("\nTesting simple command execution...")
-    
+
     # Test without API key (should fail)
-    response = client.post("/execute", json={
-        "command": "echo 'Hello World'",
-        "command_type": "simple"
-    })
+    response = client.post(
+        "/execute", json={"command": "echo 'Hello World'", "command_type": "simple"}
+    )
     assert response.status_code == 403  # Forbidden without API key
     print("✓ API key protection working")
-    
+
     # Test with mock API key
-    headers = {"Authorization": "Bearer test-api-key"}
-    response = client.post("/execute", json={
-        "command": "echo 'Hello World'",
-        "command_type": "simple"
-    }, headers=headers)
-    
+    response = client.post(
+        "/execute",
+        json={"command": "echo 'Hello World'", "command_type": "simple"},
+        headers=HEADERS,
+    )
+
     # Should work even without API_KEY set in environment (no restriction)
     print(f"Response status: {response.status_code}")
     print(f"Response body: {response.json()}")
 
+
 def test_system_status():
     """Test system status endpoint"""
     print("\nTesting system status...")
-    headers = {"Authorization": "Bearer test-api-key"}
-    response = client.get("/system/status", headers=headers)
-    
+    response = client.get("/system/status", headers=HEADERS)
+
     print(f"Response status: {response.status_code}")
     if response.status_code == 200:
         data = response.json()
@@ -60,40 +65,100 @@ def test_system_status():
     else:
         print(f"System status failed: {response.json()}")
 
+
 def test_input_validation():
     """Test input validation"""
     print("\nTesting input validation...")
-    headers = {"Authorization": "Bearer test-api-key"}
-    
     # Test invalid command (empty)
-    response = client.post("/execute", json={
-        "command": "",
-        "command_type": "simple"
-    }, headers=headers)
+    response = client.post(
+        "/execute", json={"command": "", "command_type": "simple"}, headers=HEADERS
+    )
     assert response.status_code == 422  # Validation error
     print("✓ Empty command validation working")
-    
+
     # Test dangerous command pattern
-    response = client.post("/execute", json={
-        "command": "rm -rf / && echo 'dangerous'",
-        "command_type": "simple"
-    }, headers=headers)
+    response = client.post(
+        "/execute",
+        json={"command": "rm -rf / && echo 'dangerous'", "command_type": "simple"},
+        headers=HEADERS,
+    )
     # Should either be blocked or restricted
     print(f"Dangerous command response: {response.status_code}")
+
+
+def test_single_interactive_session_limit():
+    """Ensure only one interactive session can run at a time."""
+    print("\nTesting single interactive session enforcement...")
+
+    start_response = client.post(
+        "/execute",
+        json={"command": "python3 -i", "command_type": "interactive"},
+        headers=HEADERS,
+    )
+    assert start_response.status_code == 200
+    start_data = start_response.json()
+    assert start_data["success"] is True
+    session_id = start_data["session_id"]
+    assert session_id
+
+    second_response = client.post(
+        "/execute",
+        json={"command": "python3 -i", "command_type": "interactive"},
+        headers=HEADERS,
+    )
+    assert second_response.status_code == 200
+    second_data = second_response.json()
+    assert second_data["success"] is False
+    assert session_id == second_data.get("session_id")
+    assert "already active" in second_data.get("error_message", "").lower()
+
+    close_response = client.post(
+        f"/interactive/{session_id}",
+        json={"session_id": session_id, "input_text": "exit()"},
+        headers=HEADERS,
+    )
+    assert close_response.status_code == 200
+    close_data = close_response.json()
+    if close_data["is_interactive"]:
+        delete_response = client.delete(f"/sessions/{session_id}", headers=HEADERS)
+        assert delete_response.status_code == 200
+
+    restart_response = client.post(
+        "/execute",
+        json={"command": "python3 -i", "command_type": "interactive"},
+        headers=HEADERS,
+    )
+    assert restart_response.status_code == 200
+    restart_data = restart_response.json()
+    assert restart_data["success"] is True
+    new_session_id = restart_data["session_id"]
+    assert new_session_id != session_id
+
+    cleanup_response = client.post(
+        f"/interactive/{new_session_id}",
+        json={"session_id": new_session_id, "input_text": "exit()"},
+        headers=HEADERS,
+    )
+    assert cleanup_response.status_code == 200
+    cleanup_data = cleanup_response.json()
+    if cleanup_data["is_interactive"]:
+        delete_response = client.delete(f"/sessions/{new_session_id}", headers=HEADERS)
+        assert delete_response.status_code == 200
+
 
 if __name__ == "__main__":
     print("V-AI CLI Control API Tests")
     print("=" * 40)
-    
+
     try:
         test_health_check()
         test_simple_command()
         test_system_status()
         test_input_validation()
-        
+
         print("\n" + "=" * 40)
         print("All tests completed!")
-        
+
     except Exception as e:
         print(f"Test failed with error: {e}")
         sys.exit(1)

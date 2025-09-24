@@ -1,36 +1,39 @@
 from typing import Optional, List, Dict, Any, Union
 from pydantic import BaseModel, Field, field_validator, model_validator
 from enum import Enum
-from datetime import datetime
+
 
 class CommandType(str, Enum):
     """
     Enumeration of supported command execution types for the CLI control system.
-    
+
     - SIMPLE: Execute command once and return output immediately
-    - INTERACTIVE: Start persistent session allowing multiple input/output exchanges  
+    - INTERACTIVE: Start persistent session allowing multiple input/output exchanges
     - BACKGROUND: Execute command in background and return immediately (future feature)
     """
+
     SIMPLE = "simple"
-    INTERACTIVE = "interactive" 
+    INTERACTIVE = "interactive"
     BACKGROUND = "background"
-    
+
     class Config:
         """Pydantic configuration for CommandType enum"""
+
         use_enum_values = True
         json_schema_extra = {
             "examples": ["simple", "interactive"],
-            "description": "Type of command execution mode"
+            "description": "Type of command execution mode",
         }
+
 
 class CommandRequest(BaseModel):
     """
     Request model for executing CLI commands on the Linux server.
-    
+
     This model validates and structures command execution requests with comprehensive
     security validation, timeout controls, and environment customization capabilities.
     """
-    
+
     command: str = Field(
         ...,
         title="CLI Command",
@@ -38,9 +41,9 @@ class CommandRequest(BaseModel):
         min_length=1,
         max_length=1000,
         example="ls -la /home/user",
-        pattern=r"^[^\x00-\x1f\x7f-\x9f]*$"  # Prevent control characters
+        pattern=r"^[^\x00-\x1f\x7f-\x9f]*$",  # Prevent control characters
     )
-    
+
     command_type: CommandType = Field(
         CommandType.SIMPLE,
         title="Execution Mode",
@@ -50,9 +53,9 @@ class CommandRequest(BaseModel):
             "- **interactive**: Start persistent session for commands requiring input\n"
             "- **background**: Execute asynchronously (not yet implemented)"
         ),
-        example="simple"
+        example="simple",
     )
-    
+
     working_directory: Optional[str] = Field(
         None,
         title="Working Directory",
@@ -62,9 +65,9 @@ class CommandRequest(BaseModel):
             "Defaults to server's current working directory if not specified."
         ),
         example="/home/user/projects",
-        pattern=r"^(/[^/\x00]*)+/?$"  # Valid absolute path
+        pattern=r"^(/[^/\x00]*)+/?$",  # Valid absolute path
     )
-    
+
     timeout: Optional[int] = Field(
         30,
         title="Command Timeout",
@@ -75,9 +78,9 @@ class CommandRequest(BaseModel):
         ),
         ge=1,
         le=300,
-        example=30
+        example=30,
     )
-    
+
     environment: Optional[Dict[str, str]] = Field(
         None,
         title="Environment Variables",
@@ -86,9 +89,9 @@ class CommandRequest(BaseModel):
             "These variables will be available to the command and any child processes. "
             "Useful for passing configuration or authentication tokens."
         ),
-        example={"PATH": "/usr/local/bin:/usr/bin", "LANG": "en_US.UTF-8"}
+        example={"PATH": "/usr/local/bin:/usr/bin", "LANG": "en_US.UTF-8"},
     )
-    
+
     expect_interactive: bool = Field(
         False,
         title="Interactive Expectation",
@@ -97,11 +100,12 @@ class CommandRequest(BaseModel):
             "When True, the system optimizes for interactive session handling. "
             "Automatically set to True for command_type='interactive'."
         ),
-        example=False
+        example=False,
     )
-    
+
     class Config:
         """Pydantic model configuration"""
+
         title = "Command Execution Request"
         description = "Request to execute a CLI command on the Linux server"
         json_schema_extra = {
@@ -110,48 +114,71 @@ class CommandRequest(BaseModel):
                     "command": "ls -la",
                     "command_type": "simple",
                     "working_directory": "/home/user",
-                    "timeout": 30
+                    "timeout": 30,
                 },
                 {
                     "command": "python3",
                     "command_type": "interactive",
                     "environment": {"PYTHONPATH": "/usr/local/lib/python3.9"},
-                    "expect_interactive": True
-                }
+                    "expect_interactive": True,
+                },
             ]
         }
-    
-    @field_validator('command')
+
+    @field_validator("command")
     @classmethod
     def validate_command_security(cls, v: str) -> str:
         """
         Comprehensive security validation for CLI commands.
-        
+
         Prevents execution of potentially dangerous command patterns while
         allowing safe operations. Blocks command injection attempts and
         restricts access to sensitive system operations.
         """
         if not v or not v.strip():
             raise ValueError("Command cannot be empty")
-        
+
         # Remove leading/trailing whitespace
         v = v.strip()
-        
+
         # Security validation - prevent dangerous command patterns
         dangerous_patterns = [
-            ';', '&&', '||', '>', '>>', '|', '`', '$()', 
-            'rm -rf /', 'dd if=', 'mkfs', 'fdisk', 'parted'
+            ";",
+            "&&",
+            "||",
+            ">",
+            ">>",
+            "|",
+            "`",
+            "$()",
+            "rm -rf /",
+            "dd if=",
+            "mkfs",
+            "fdisk",
+            "parted",
         ]
-        
+
         # Allow safe commands even with potentially dangerous patterns
         safe_commands = [
-            'ls', 'pwd', 'whoami', 'ps', 'df', 'free', 'uname', 
-            'date', 'uptime', 'cat', 'grep', 'find', 'echo', 'head', 'tail'
+            "ls",
+            "pwd",
+            "whoami",
+            "ps",
+            "df",
+            "free",
+            "uname",
+            "date",
+            "uptime",
+            "cat",
+            "grep",
+            "find",
+            "echo",
+            "head",
+            "tail",
         ]
-        
-        command_start = v.split()[0] if v.split() else ""
+
         is_safe_command = any(v.startswith(safe_cmd) for safe_cmd in safe_commands)
-        
+
         if not is_safe_command:
             for pattern in dangerous_patterns:
                 if pattern in v:
@@ -159,36 +186,37 @@ class CommandRequest(BaseModel):
                         f"Command contains potentially dangerous pattern '{pattern}'. "
                         f"This pattern is restricted for security reasons."
                     )
-        
+
         return v
-    
-    @model_validator(mode='after')
-    def validate_interactive_consistency(self) -> 'CommandRequest':
+
+    @model_validator(mode="after")
+    def validate_interactive_consistency(self) -> "CommandRequest":
         """
         Ensure consistency between command_type and expect_interactive fields.
-        
+
         Automatically sets expect_interactive=True when command_type is 'interactive'
         and validates that the configuration makes logical sense.
         """
         command_type = self.command_type
         expect_interactive = self.expect_interactive
-        
+
         if command_type == CommandType.INTERACTIVE:
             self.expect_interactive = True
         elif expect_interactive and command_type == CommandType.SIMPLE:
             # Warning: this might not work as expected
             pass  # Allow but user should be aware
-            
+
         return self
+
 
 class InteractiveResponse(BaseModel):
     """
     Request model for sending input to interactive command sessions.
-    
+
     Used to provide input to commands that are running in interactive mode,
     such as Python REPL, database shells, or commands waiting for user input.
     """
-    
+
     session_id: str = Field(
         ...,
         title="Session Identifier",
@@ -198,9 +226,9 @@ class InteractiveResponse(BaseModel):
             "must be used for all subsequent interactions with that session."
         ),
         example="session_abc123xyz789",
-        pattern=r"^[a-zA-Z0-9_-]+$"
+        pattern=r"^[a-zA-Z0-9_-]+$",
     )
-    
+
     input_text: str = Field(
         ...,
         title="Input Text",
@@ -210,9 +238,9 @@ class InteractiveResponse(BaseModel):
             "Python code, SQL queries, shell commands, or simple responses like 'y' or 'n'."
         ),
         max_length=10000,
-        example="print('Hello, World!')"
+        example="print('Hello, World!')",
     )
-    
+
     send_newline: bool = Field(
         True,
         title="Append Newline",
@@ -221,11 +249,12 @@ class InteractiveResponse(BaseModel):
             "Most interactive commands expect a newline to execute the input. "
             "Set to False for partial input or when controlling exact input format."
         ),
-        example=True
+        example=True,
     )
-    
+
     class Config:
         """Pydantic model configuration"""
+
         title = "Interactive Session Input"
         description = "Input to send to an active interactive command session"
         json_schema_extra = {
@@ -233,29 +262,30 @@ class InteractiveResponse(BaseModel):
                 {
                     "session_id": "session_python_123",
                     "input_text": "print('Hello World')",
-                    "send_newline": True
+                    "send_newline": True,
                 },
                 {
-                    "session_id": "session_mysql_456", 
+                    "session_id": "session_mysql_456",
                     "input_text": "SHOW DATABASES;",
-                    "send_newline": True
+                    "send_newline": True,
                 },
                 {
                     "session_id": "session_confirm_789",
                     "input_text": "y",
-                    "send_newline": True
-                }
+                    "send_newline": True,
+                },
             ]
         }
+
 
 class CommandResponse(BaseModel):
     """
     Response model containing the results of command execution.
-    
+
     Provides comprehensive information about command execution including
     output, error details, performance metrics, and session information.
     """
-    
+
     success: bool = Field(
         ...,
         title="Execution Success",
@@ -264,9 +294,9 @@ class CommandResponse(BaseModel):
             "True means the command completed normally with exit code 0. "
             "False indicates an error occurred during execution."
         ),
-        example=True
+        example=True,
     )
-    
+
     exit_code: Optional[int] = Field(
         None,
         title="Process Exit Code",
@@ -275,9 +305,9 @@ class CommandResponse(BaseModel):
             "0 typically indicates success, non-zero values indicate various error conditions. "
             "May be None for interactive sessions or commands that don't complete."
         ),
-        example=0
+        example=0,
     )
-    
+
     stdout: str = Field(
         "",
         title="Standard Output",
@@ -286,9 +316,9 @@ class CommandResponse(BaseModel):
             "Contains the primary output/results of the command execution. "
             "May be truncated for very large outputs for performance reasons."
         ),
-        example="total 64\ndrwxr-xr-x 3 user user 4096 Jan 15 10:30 ."
+        example="total 64\ndrwxr-xr-x 3 user user 4096 Jan 15 10:30 .",
     )
-    
+
     stderr: str = Field(
         "",
         title="Standard Error",
@@ -297,9 +327,9 @@ class CommandResponse(BaseModel):
             "Contains error messages, warnings, and diagnostic information. "
             "Empty string indicates no errors were reported."
         ),
-        example=""
+        example="",
     )
-    
+
     execution_time: float = Field(
         ...,
         title="Execution Duration",
@@ -309,9 +339,9 @@ class CommandResponse(BaseModel):
             "For interactive sessions, represents time for the current input/output cycle."
         ),
         example=0.245,
-        ge=0
+        ge=0,
     )
-    
+
     session_id: Optional[str] = Field(
         None,
         title="Session Identifier",
@@ -320,9 +350,9 @@ class CommandResponse(BaseModel):
             "Present when command_type='interactive' or when continuing an interactive session. "
             "Use this ID for subsequent interactions with the same session."
         ),
-        example="session_abc123xyz789"
+        example="session_abc123xyz789",
     )
-    
+
     is_interactive: bool = Field(
         False,
         title="Interactive Session Flag",
@@ -331,9 +361,9 @@ class CommandResponse(BaseModel):
             "Interactive sessions remain active for additional input/output exchanges. "
             "Simple commands always have this set to False."
         ),
-        example=False
+        example=False,
     )
-    
+
     error_message: Optional[str] = Field(
         None,
         title="Error Description",
@@ -342,9 +372,9 @@ class CommandResponse(BaseModel):
             "Provides additional context beyond the exit code and stderr output. "
             "Includes system-level errors, timeouts, and security validation failures."
         ),
-        example="Command timed out after 30 seconds"
+        example="Command timed out after 30 seconds",
     )
-    
+
     command_executed: Optional[str] = Field(
         None,
         title="Executed Command",
@@ -352,9 +382,9 @@ class CommandResponse(BaseModel):
             "The actual command that was executed, including any modifications "
             "made by the system for security or compatibility reasons."
         ),
-        example="ls -la /home/user"
+        example="ls -la /home/user",
     )
-    
+
     working_directory: Optional[str] = Field(
         None,
         title="Execution Directory",
@@ -362,11 +392,12 @@ class CommandResponse(BaseModel):
             "The working directory where the command was executed. "
             "Useful for understanding the context of relative path operations."
         ),
-        example="/home/user"
+        example="/home/user",
     )
-    
+
     class Config:
         """Pydantic model configuration"""
+
         title = "Command Execution Response"
         description = "Results and metadata from CLI command execution"
         json_schema_extra = {
@@ -379,29 +410,30 @@ class CommandResponse(BaseModel):
                     "execution_time": 0.142,
                     "session_id": None,
                     "is_interactive": False,
-                    "error_message": None
+                    "error_message": None,
                 },
                 {
                     "success": True,
                     "exit_code": None,
-                    "stdout": "Python 3.9.2 (default, Feb 28 2021, 17:03:44)\n[GCC 10.2.1 20210110] on linux\nType \"help\", \"copyright\", \"credits\" or \"license\" for more information.\n>>> ",
+                    "stdout": 'Python 3.9.2 (default, Feb 28 2021, 17:03:44)\n[GCC 10.2.1 20210110] on linux\nType "help", "copyright", "credits" or "license" for more information.\n>>> ',
                     "stderr": "",
                     "execution_time": 1.025,
                     "session_id": "session_python_abc123",
                     "is_interactive": True,
-                    "error_message": None
-                }
+                    "error_message": None,
+                },
             ]
         }
+
 
 class SessionInfo(BaseModel):
     """
     Information about an active interactive command session.
-    
+
     Provides detailed metadata about interactive sessions including
     status, timing, and resource usage information.
     """
-    
+
     session_id: str = Field(
         ...,
         title="Session Identifier",
@@ -409,9 +441,9 @@ class SessionInfo(BaseModel):
             "Unique identifier for this interactive session. "
             "Used to reference the session in all API calls."
         ),
-        example="session_python_abc123"
+        example="session_python_abc123",
     )
-    
+
     command: str = Field(
         ...,
         title="Session Command",
@@ -419,9 +451,9 @@ class SessionInfo(BaseModel):
             "The original command that started this interactive session. "
             "Provides context about what type of interactive environment is running."
         ),
-        example="python3"
+        example="python3",
     )
-    
+
     status: str = Field(
         ...,
         title="Session Status",
@@ -429,13 +461,13 @@ class SessionInfo(BaseModel):
             "Current status of the interactive session:\n"
             "- **active**: Session is running and accepting input\n"
             "- **waiting**: Session is waiting for input\n"
-            "- **busy**: Session is processing previous input\n" 
+            "- **busy**: Session is processing previous input\n"
             "- **terminated**: Session has ended\n"
             "- **error**: Session encountered an error"
         ),
-        example="active"
+        example="active",
     )
-    
+
     created_at: str = Field(
         ...,
         title="Creation Timestamp",
@@ -443,9 +475,9 @@ class SessionInfo(BaseModel):
             "ISO 8601 formatted timestamp when the session was created. "
             "Useful for tracking session age and cleanup operations."
         ),
-        example="2024-01-15T10:30:45.123Z"
+        example="2024-01-15T10:30:45.123Z",
     )
-    
+
     last_activity: str = Field(
         ...,
         title="Last Activity Timestamp",
@@ -454,9 +486,9 @@ class SessionInfo(BaseModel):
             "Updated whenever input is sent or output is received. "
             "Used for detecting idle sessions."
         ),
-        example="2024-01-15T10:45:20.456Z"
+        example="2024-01-15T10:45:20.456Z",
     )
-    
+
     process_id: Optional[int] = Field(
         None,
         title="Process ID",
@@ -464,9 +496,9 @@ class SessionInfo(BaseModel):
             "Operating system process ID (PID) of the interactive command. "
             "Can be used for advanced monitoring or process management operations."
         ),
-        example=12345
+        example=12345,
     )
-    
+
     working_directory: Optional[str] = Field(
         None,
         title="Working Directory",
@@ -474,11 +506,12 @@ class SessionInfo(BaseModel):
             "Current working directory of the interactive session. "
             "May change during session lifetime based on commands executed."
         ),
-        example="/home/user/workspace"
+        example="/home/user/workspace",
     )
-    
+
     class Config:
         """Pydantic model configuration"""
+
         title = "Interactive Session Information"
         description = "Metadata and status information for active interactive sessions"
         json_schema_extra = {
@@ -490,19 +523,20 @@ class SessionInfo(BaseModel):
                     "created_at": "2024-01-15T10:30:45.123Z",
                     "last_activity": "2024-01-15T10:45:20.456Z",
                     "process_id": 12345,
-                    "working_directory": "/home/user"
+                    "working_directory": "/home/user",
                 }
             ]
         }
 
+
 class SystemStatus(BaseModel):
     """
     Comprehensive system status and performance metrics.
-    
+
     Provides real-time information about server health, resource utilization,
     and operational status for monitoring and diagnostic purposes.
     """
-    
+
     uptime: str = Field(
         ...,
         title="System Uptime",
@@ -511,9 +545,9 @@ class SystemStatus(BaseModel):
             "Format: 'XdYhZm' (days, hours, minutes) or 'XhYm' for less than a day. "
             "Useful for understanding system stability and maintenance windows."
         ),
-        example="5d 14h 32m"
+        example="5d 14h 32m",
     )
-    
+
     load_average: List[float] = Field(
         ...,
         title="System Load Average",
@@ -524,16 +558,16 @@ class SystemStatus(BaseModel):
         ),
         example=[0.45, 0.52, 0.48],
         min_items=3,
-        max_items=3
+        max_items=3,
     )
-    
+
     memory_usage: Dict[str, Union[int, float]] = Field(
         ...,
         title="Memory Utilization",
         description=(
             "Detailed memory usage statistics including:\n"
             "- **total**: Total physical memory in bytes\n"
-            "- **available**: Available memory for new processes in bytes\n"  
+            "- **available**: Available memory for new processes in bytes\n"
             "- **used**: Currently used memory in bytes\n"
             "- **percent**: Memory usage percentage (0-100)\n"
             "- **cached**: Memory used for disk caching (if available)\n"
@@ -541,16 +575,16 @@ class SystemStatus(BaseModel):
         ),
         example={
             "total": 8589934592,
-            "available": 5368709120, 
+            "available": 5368709120,
             "used": 3221225472,
             "percent": 37.5,
             "cached": 1073741824,
-            "buffers": 268435456
-        }
+            "buffers": 268435456,
+        },
     )
-    
+
     disk_usage: Dict[str, Union[int, float]] = Field(
-        ..., 
+        ...,
         title="Disk Space Utilization",
         description=(
             "Root filesystem disk usage statistics:\n"
@@ -563,10 +597,10 @@ class SystemStatus(BaseModel):
             "total": 107374182400,
             "used": 21474836480,
             "free": 85899346920,
-            "percent": 20.0
-        }
+            "percent": 20.0,
+        },
     )
-    
+
     active_sessions: int = Field(
         ...,
         title="Active Interactive Sessions",
@@ -576,9 +610,9 @@ class SystemStatus(BaseModel):
             "that can accept input and provide output over time."
         ),
         example=3,
-        ge=0
+        ge=0,
     )
-    
+
     cpu_usage: Optional[Dict[str, float]] = Field(
         None,
         title="CPU Utilization",
@@ -595,13 +629,13 @@ class SystemStatus(BaseModel):
             "user": 15.2,
             "system": 8.1,
             "idle": 74.7,
-            "iowait": 2.0
-        }
+            "iowait": 2.0,
+        },
     )
-    
+
     network_stats: Optional[Dict[str, int]] = Field(
         None,
-        title="Network Statistics", 
+        title="Network Statistics",
         description=(
             "Network interface statistics:\n"
             "- **bytes_sent**: Total bytes transmitted\n"
@@ -613,12 +647,13 @@ class SystemStatus(BaseModel):
             "bytes_sent": 1073741824,
             "bytes_recv": 2147483648,
             "packets_sent": 1048576,
-            "packets_recv": 2097152
-        }
+            "packets_recv": 2097152,
+        },
     )
-    
+
     class Config:
         """Pydantic model configuration"""
+
         title = "System Status and Performance Metrics"
         description = "Comprehensive server health and resource utilization information"
         json_schema_extra = {
@@ -629,28 +664,29 @@ class SystemStatus(BaseModel):
                     "memory_usage": {
                         "total": 8589934592,
                         "available": 5368709120,
-                        "used": 3221225472, 
-                        "percent": 37.5
+                        "used": 3221225472,
+                        "percent": 37.5,
                     },
                     "disk_usage": {
                         "total": 107374182400,
                         "used": 21474836480,
                         "free": 85899346920,
-                        "percent": 20.0
+                        "percent": 20.0,
                     },
-                    "active_sessions": 2
+                    "active_sessions": 2,
                 }
             ]
         }
 
+
 class HealthCheck(BaseModel):
     """
     API health check response model.
-    
+
     Provides basic service availability and version information
     for monitoring and diagnostic purposes.
     """
-    
+
     status: str = Field(
         "healthy",
         title="Service Status",
@@ -660,9 +696,9 @@ class HealthCheck(BaseModel):
             "- **degraded**: Service is running but with reduced functionality\n"
             "- **unhealthy**: Service is experiencing critical issues"
         ),
-        example="healthy"
+        example="healthy",
     )
-    
+
     version: str = Field(
         "1.0.0",
         title="API Version",
@@ -672,9 +708,9 @@ class HealthCheck(BaseModel):
             "Useful for client compatibility and feature detection."
         ),
         example="1.0.0",
-        pattern=r"^\d+\.\d+\.\d+(-[a-zA-Z0-9.]+)?$"
+        pattern=r"^\d+\.\d+\.\d+(-[a-zA-Z0-9.]+)?$",
     )
-    
+
     timestamp: str = Field(
         ...,
         title="Response Timestamp",
@@ -682,9 +718,9 @@ class HealthCheck(BaseModel):
             "ISO 8601 formatted timestamp when the health check was performed. "
             "Useful for monitoring response times and service availability tracking."
         ),
-        example="2024-01-15T10:30:45.123456Z"
+        example="2024-01-15T10:30:45.123456Z",
     )
-    
+
     uptime_seconds: Optional[float] = Field(
         None,
         title="Service Uptime",
@@ -693,9 +729,9 @@ class HealthCheck(BaseModel):
             "Useful for understanding service stability and deployment timing."
         ),
         example=86400.5,
-        ge=0
+        ge=0,
     )
-    
+
     dependencies: Optional[Dict[str, str]] = Field(
         None,
         title="Dependency Status",
@@ -703,40 +739,35 @@ class HealthCheck(BaseModel):
             "Status of external dependencies and services:\n"
             "Key: dependency name, Value: status ('healthy', 'degraded', 'unhealthy')"
         ),
-        example={
-            "database": "healthy",
-            "filesystem": "healthy",
-            "system": "healthy"
-        }
+        example={"database": "healthy", "filesystem": "healthy", "system": "healthy"},
     )
-    
+
     class Config:
         """Pydantic model configuration"""
+
         title = "API Health Check Response"
         description = "Service health and availability information"
         json_schema_extra = {
             "examples": [
                 {
                     "status": "healthy",
-                    "version": "1.0.0", 
+                    "version": "1.0.0",
                     "timestamp": "2024-01-15T10:30:45.123456Z",
                     "uptime_seconds": 86400.5,
-                    "dependencies": {
-                        "filesystem": "healthy",
-                        "system": "healthy"
-                    }
+                    "dependencies": {"filesystem": "healthy", "system": "healthy"},
                 }
             ]
         }
 
+
 class QuickCommandRequest(BaseModel):
     """
     Request model for quick command shortcuts like yes/no responses.
-    
+
     Provides a simplified interface for common interactive command responses,
     making it easier for GPT agents to handle typical user prompts.
     """
-    
+
     session_id: str = Field(
         ...,
         title="Target Session ID",
@@ -744,9 +775,9 @@ class QuickCommandRequest(BaseModel):
             "Identifier of the interactive session that needs the quick response. "
             "Must be an active session waiting for input."
         ),
-        example="session_python_abc123"
+        example="session_python_abc123",
     )
-    
+
     answer: bool = Field(
         ...,
         title="Yes/No Answer",
@@ -755,37 +786,38 @@ class QuickCommandRequest(BaseModel):
             "- **true**: Sends 'y' or 'yes' response\n"
             "- **false**: Sends 'n' or 'no' response"
         ),
-        example=True
+        example=True,
     )
-    
+
     response_format: Optional[str] = Field(
         "short",
         title="Response Format",
         description=(
             "Format of the response to send:\n"
             "- **short**: Send 'y' or 'n'\n"
-            "- **long**: Send 'yes' or 'no'\n"  
+            "- **long**: Send 'yes' or 'no'\n"
             "- **custom**: Use custom_yes/custom_no values"
         ),
-        example="short"
+        example="short",
     )
-    
+
     custom_yes: Optional[str] = Field(
         None,
         title="Custom Yes Response",
         description="Custom text to send for 'yes' responses when response_format='custom'",
-        example="confirm"
+        example="confirm",
     )
-    
+
     custom_no: Optional[str] = Field(
         None,
-        title="Custom No Response", 
+        title="Custom No Response",
         description="Custom text to send for 'no' responses when response_format='custom'",
-        example="cancel"
+        example="cancel",
     )
-    
+
     class Config:
         """Pydantic model configuration"""
+
         title = "Quick Command Request"
         description = "Simplified interface for common yes/no interactive responses"
         json_schema_extra = {
@@ -793,38 +825,39 @@ class QuickCommandRequest(BaseModel):
                 {
                     "session_id": "session_install_xyz",
                     "answer": True,
-                    "response_format": "short"
+                    "response_format": "short",
                 },
                 {
-                    "session_id": "session_confirm_abc", 
+                    "session_id": "session_confirm_abc",
                     "answer": False,
-                    "response_format": "long"
+                    "response_format": "long",
                 },
                 {
                     "session_id": "session_custom_def",
                     "answer": True,
                     "response_format": "custom",
                     "custom_yes": "proceed",
-                    "custom_no": "abort"
-                }
+                    "custom_no": "abort",
+                },
             ]
         }
+
 
 class ErrorResponse(BaseModel):
     """
     Standardized error response model for all API endpoints.
-    
+
     Provides consistent error reporting with detailed context
     and actionable information for debugging and resolution.
     """
-    
+
     error: bool = Field(
         True,
         title="Error Flag",
         description="Always True to indicate this is an error response",
-        example=True
+        example=True,
     )
-    
+
     error_type: str = Field(
         ...,
         title="Error Category",
@@ -837,16 +870,16 @@ class ErrorResponse(BaseModel):
             "- **timeout**: Operation exceeded time limits\n"
             "- **not_found**: Requested resource doesn't exist"
         ),
-        example="validation"
+        example="validation",
     )
-    
+
     message: str = Field(
         ...,
         title="Error Message",
         description="Human-readable description of the error that occurred",
-        example="Command contains potentially dangerous pattern ';'"
+        example="Command contains potentially dangerous pattern ';'",
     )
-    
+
     detail: Optional[Dict[str, Any]] = Field(
         None,
         title="Error Details",
@@ -858,26 +891,27 @@ class ErrorResponse(BaseModel):
         example={
             "field": "command",
             "invalid_value": "rm -rf /; echo done",
-            "validation_rule": "dangerous_patterns"
-        }
+            "validation_rule": "dangerous_patterns",
+        },
     )
-    
+
     timestamp: str = Field(
         ...,
         title="Error Timestamp",
         description="ISO 8601 timestamp when the error occurred",
-        example="2024-01-15T10:30:45.123456Z"
+        example="2024-01-15T10:30:45.123456Z",
     )
-    
+
     request_id: Optional[str] = Field(
         None,
         title="Request Identifier",
         description="Unique identifier for the failed request (for debugging)",
-        example="req_abc123def456"
+        example="req_abc123def456",
     )
-    
+
     class Config:
         """Pydantic model configuration"""
+
         title = "API Error Response"
         description = "Standardized error information for failed API requests"
         json_schema_extra = {
@@ -886,11 +920,8 @@ class ErrorResponse(BaseModel):
                     "error": True,
                     "error_type": "validation",
                     "message": "Command validation failed",
-                    "detail": {
-                        "field": "command",
-                        "invalid_pattern": ";"
-                    },
-                    "timestamp": "2024-01-15T10:30:45.123456Z"
+                    "detail": {"field": "command", "invalid_pattern": ";"},
+                    "timestamp": "2024-01-15T10:30:45.123456Z",
                 }
             ]
         }

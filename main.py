@@ -3,7 +3,7 @@ import psutil
 import time
 import logging
 from datetime import datetime
-from typing import List, Optional
+from typing import List
 from dotenv import load_dotenv
 
 from fastapi import FastAPI, HTTPException, Depends, Security, status
@@ -12,9 +12,13 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from models import (
-    CommandRequest, CommandResponse, InteractiveResponse, 
-    SessionInfo, SystemStatus, HealthCheck, CommandType,
-    QuickCommandRequest, ErrorResponse
+    CommandRequest,
+    CommandResponse,
+    InteractiveResponse,
+    SessionInfo,
+    SystemStatus,
+    HealthCheck,
+    CommandType,
 )
 from executor import command_executor
 
@@ -23,8 +27,8 @@ load_dotenv()
 
 # Configure logging
 logging.basicConfig(
-    level=getattr(logging, os.getenv('LOG_LEVEL', 'INFO').upper()),
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    level=getattr(logging, os.getenv("LOG_LEVEL", "INFO").upper()),
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
 )
 logger = logging.getLogger(__name__)
 
@@ -42,7 +46,7 @@ app = FastAPI(
     - **Secure Command Execution**: Protected CLI command execution with comprehensive security validation
     - **Interactive Sessions**: Persistent sessions for commands requiring multiple input/output exchanges
     - **Real-time Monitoring**: System status monitoring and performance metrics
-    - **Session Management**: Create, monitor, and terminate interactive command sessions
+    - **Session Management**: Manage the single interactive command session
     - **GPT-Optimized**: Specially designed endpoints for seamless AI agent integration
     
     ## 🔒 Security Features
@@ -60,10 +64,10 @@ app = FastAPI(
     - Start interactive sessions for complex multi-step operations
     - Send input to active interactive sessions
     
-    ### Session Management  
-    - List and monitor all active interactive sessions
-    - Get detailed information about specific sessions
-    - Terminate sessions when no longer needed
+    ### Session Management
+    - Inspect the single active interactive session (if any)
+    - Retrieve detailed information about the current session
+    - Terminate the active session when no longer needed
     
     ### System Monitoring
     - Real-time system status and performance metrics
@@ -100,8 +104,11 @@ app = FastAPI(
     },
     servers=[
         {"url": "http://localhost:8000", "description": "Development server"},
-        {"url": "https://your-domain.com", "description": "Production server (configure as needed)"}
-    ]
+        {
+            "url": "https://your-domain.com",
+            "description": "Production server (configure as needed)",
+        },
+    ],
 )
 
 # CORS configuration
@@ -115,19 +122,22 @@ app.add_middleware(
 
 # Security
 security = HTTPBearer()
-API_KEY = os.getenv('API_KEY')
+API_KEY = os.getenv("API_KEY")
 
-async def verify_api_key(credentials: HTTPAuthorizationCredentials = Security(security)):
+
+async def verify_api_key(
+    credentials: HTTPAuthorizationCredentials = Security(security),
+):
     """Verify API key for authentication"""
     if API_KEY and credentials.credentials != API_KEY:
         raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid API key"
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid API key"
         )
     return credentials.credentials
 
+
 @app.get(
-    "/", 
+    "/",
     response_model=HealthCheck,
     summary="API Root Health Check",
     description="""
@@ -157,24 +167,23 @@ async def verify_api_key(credentials: HTTPAuthorizationCredentials = Security(se
                 "application/json": {
                     "example": {
                         "status": "healthy",
-                        "version": "1.0.0", 
-                        "timestamp": "2024-01-15T10:30:45.123456Z"
+                        "version": "1.0.0",
+                        "timestamp": "2024-01-15T10:30:45.123456Z",
                     }
                 }
-            }
+            },
         }
-    }
+    },
 )
 async def root():
     """Root endpoint health check - returns basic service status"""
     return HealthCheck(
-        status="healthy",
-        version="1.0.0",
-        timestamp=datetime.now().isoformat()
+        status="healthy", version="1.0.0", timestamp=datetime.now().isoformat()
     )
 
+
 @app.get(
-    "/health", 
+    "/health",
     response_model=HealthCheck,
     summary="Detailed Health Check",
     description="""
@@ -206,26 +215,22 @@ async def root():
                         "version": "1.0.0",
                         "timestamp": "2024-01-15T10:30:45.123456Z",
                         "uptime_seconds": 86400.5,
-                        "dependencies": {
-                            "filesystem": "healthy",
-                            "system": "healthy"
-                        }
+                        "dependencies": {"filesystem": "healthy", "system": "healthy"},
                     }
                 }
-            }
+            },
         }
-    }
+    },
 )
 async def health_check():
     """Detailed health check endpoint with comprehensive service information"""
     return HealthCheck(
-        status="healthy",
-        version="1.0.0",
-        timestamp=datetime.now().isoformat()
+        status="healthy", version="1.0.0", timestamp=datetime.now().isoformat()
     )
 
+
 @app.post(
-    "/execute", 
+    "/execute",
     response_model=CommandResponse,
     summary="Execute CLI Commands",
     description="""
@@ -306,8 +311,8 @@ async def health_check():
                                 "execution_time": 0.142,
                                 "session_id": None,
                                 "is_interactive": False,
-                                "error_message": None
-                            }
+                                "error_message": None,
+                            },
                         },
                         "interactive_command": {
                             "summary": "Interactive session started",
@@ -319,12 +324,12 @@ async def health_check():
                                 "execution_time": 1.025,
                                 "session_id": "session_python_abc123",
                                 "is_interactive": True,
-                                "error_message": None
-                            }
-                        }
+                                "error_message": None,
+                            },
+                        },
                     }
                 }
-            }
+            },
         },
         400: {
             "description": "Invalid command or validation failed",
@@ -334,52 +339,50 @@ async def health_check():
                         "detail": "Command contains potentially dangerous pattern ';'"
                     }
                 }
-            }
+            },
         },
-        401: {
-            "description": "Authentication failed - invalid or missing API key"
-        },
-        500: {
-            "description": "Command execution failed due to system error"
-        }
-    }
+        401: {"description": "Authentication failed - invalid or missing API key"},
+        500: {"description": "Command execution failed due to system error"},
+    },
 )
 async def execute_command(
-    request: CommandRequest,
-    api_key: str = Depends(verify_api_key)
+    request: CommandRequest, api_key: str = Depends(verify_api_key)
 ):
     """Execute a CLI command with comprehensive security validation and monitoring"""
     logger.info(f"Executing command: {request.command}")
-    
+
     try:
         if request.command_type == CommandType.SIMPLE:
             response = await command_executor.execute_simple_command(
                 command=request.command,
                 working_directory=request.working_directory,
                 timeout=request.timeout,
-                environment=request.environment
+                environment=request.environment,
             )
         elif request.command_type == CommandType.INTERACTIVE:
             session_id, response = command_executor.start_interactive_command(
                 command=request.command,
                 working_directory=request.working_directory,
-                environment=request.environment
+                environment=request.environment,
             )
         else:
             raise HTTPException(
                 status_code=400,
-                detail=f"Command type {request.command_type} not implemented yet"
+                detail=f"Command type {request.command_type} not implemented yet",
             )
-        
+
         logger.info(f"Command executed successfully: {response.success}")
         return response
-        
+
     except Exception as e:
         logger.error(f"Error executing command: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Command execution failed: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Command execution failed: {str(e)}"
+        )
+
 
 @app.post(
-    "/interactive/{session_id}", 
+    "/interactive/{session_id}",
     response_model=CommandResponse,
     summary="Send Input to Interactive Session",
     description="""
@@ -454,8 +457,8 @@ async def execute_command(
                                 "execution_time": 0.025,
                                 "session_id": "session_python_abc123",
                                 "is_interactive": True,
-                                "error_message": None
-                            }
+                                "error_message": None,
+                            },
                         },
                         "command_with_error": {
                             "summary": "Command with error output",
@@ -465,106 +468,65 @@ async def execute_command(
                                 "stdout": "",
                                 "stderr": "SyntaxError: invalid syntax\n>>> ",
                                 "execution_time": 0.018,
-                                "session_id": "session_python_abc123", 
+                                "session_id": "session_python_abc123",
                                 "is_interactive": True,
-                                "error_message": None
-                            }
-                        }
+                                "error_message": None,
+                            },
+                        },
                     }
                 }
-            }
+            },
         },
-        400: {
-            "description": "Invalid input or session configuration"
-        },
-        401: {
-            "description": "Authentication failed - invalid or missing API key"
-        },
-        404: {
-            "description": "Session not found or has been terminated"
-        },
-        500: {
-            "description": "Failed to send input or receive output from session"
-        }
-    }
+        400: {"description": "Invalid input or session configuration"},
+        401: {"description": "Authentication failed - invalid or missing API key"},
+        404: {"description": "Session not found or has been terminated"},
+        500: {"description": "Failed to send input or receive output from session"},
+    },
 )
 async def send_interactive_input(
     session_id: str,
     request: InteractiveResponse,
-    api_key: str = Depends(verify_api_key)
+    api_key: str = Depends(verify_api_key),
 ):
     """Send input to an interactive command session and receive output"""
     logger.info(f"Sending input to session {session_id}: {request.input_text}")
-    
+
     try:
-        response = command_executor.send_interactive_input(session_id, request.input_text)
+        response = command_executor.send_interactive_input(
+            session_id, request.input_text
+        )
         logger.info(f"Interactive input sent successfully: {response.success}")
         return response
-        
+
     except Exception as e:
         logger.error(f"Error sending interactive input: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Interactive input failed: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Interactive input failed: {str(e)}"
+        )
+
 
 @app.get(
-    "/sessions", 
+    "/sessions",
     response_model=List[SessionInfo],
     summary="List Active Interactive Sessions",
     description="""
-    **Retrieve a list of all currently active interactive command sessions.**
-    
-    This endpoint provides comprehensive information about all interactive sessions
-    currently running on the server, including their status, timing, and resource usage.
-    
-    ### Session Information Included
-    
-    **Basic Details**
-    - **Session ID**: Unique identifier for API interactions
-    - **Original Command**: The command that started the interactive session
-    - **Current Status**: active, waiting, busy, terminated, or error
-    - **Creation Time**: When the session was initially started
-    - **Last Activity**: Most recent interaction timestamp
-    
-    **Extended Information**
-    - **Process ID**: System process identifier (PID) for advanced monitoring
-    - **Working Directory**: Current working directory of the session
-    - **Resource Usage**: Memory, CPU utilization (if available)
-    - **Parent/Child Processes**: Process hierarchy information
-    
-    ### Session Status Meanings
-    
-    - **active**: Session is running normally and ready for input
-    - **waiting**: Session is idle, waiting for the next input
-    - **busy**: Session is currently processing previous input
-    - **terminated**: Session has ended (will be cleaned up automatically)
-    - **error**: Session encountered an error and may need manual cleanup
-    
-    ### Use Cases
-    
-    **Session Monitoring**
-    - Track all active interactive operations
-    - Monitor session resource usage and performance
-    - Identify long-running or stuck sessions
-    - Audit interactive command usage
-    
-    **Session Management**  
-    - Find specific sessions by command or creation time
-    - Identify sessions that may need termination
-    - Monitor session activity patterns
-    - Clean up abandoned or orphaned sessions
-    
-    **Debugging and Troubleshooting**
-    - Investigate session-related issues
-    - Track session lifecycle and state changes
-    - Monitor concurrent session limits
-    - Analyze interactive command patterns
-    
-    ### Automatic Cleanup
-    
-    The system automatically removes inactive sessions based on configurable timeouts:
-    - **Idle Timeout**: Sessions with no activity for extended periods
-    - **Maximum Lifetime**: Sessions running longer than configured limits
-    - **Resource Limits**: Sessions consuming excessive system resources
-    - **Process Termination**: Sessions whose underlying processes have ended
+    **Retrieve the current interactive session (if any).**
+
+    The command executor enforces a single interactive session at a time, so this
+    endpoint returns either an empty list or a list containing one entry. It remains
+    available for backwards compatibility with earlier multi-session workflows and
+    for clients that prefer a consistent list-based response payload.
+
+    ### Information Returned
+    - Session identifier for follow-up interactive calls
+    - Command that spawned the interactive process
+    - Creation and last-activity timestamps
+    - Session status indicating whether the process is still running
+
+    ### Typical Uses
+    - Determine if an interactive session is already running before starting another
+    - Recover the session ID after a lost response
+    - Monitor when the active session last received input
     """,
     tags=["Session Management"],
     responses={
@@ -576,32 +538,19 @@ async def send_interactive_input(
                         {
                             "session_id": "session_python_abc123",
                             "command": "python3",
-                            "status": "active", 
+                            "status": "active",
                             "created_at": "2024-01-15T10:30:45.123Z",
                             "last_activity": "2024-01-15T10:45:20.456Z",
                             "process_id": 12345,
-                            "working_directory": "/home/user"
-                        },
-                        {
-                            "session_id": "session_mysql_def456",
-                            "command": "mysql -u user -p database",
-                            "status": "waiting",
-                            "created_at": "2024-01-15T09:15:30.789Z", 
-                            "last_activity": "2024-01-15T10:42:15.321Z",
-                            "process_id": 12346,
-                            "working_directory": "/var/lib/mysql"
+                            "working_directory": "/home/user",
                         }
                     ]
                 }
-            }
+            },
         },
-        401: {
-            "description": "Authentication failed - invalid or missing API key"
-        },
-        500: {
-            "description": "Failed to retrieve session list due to system error"
-        }
-    }
+        401: {"description": "Authentication failed - invalid or missing API key"},
+        500: {"description": "Failed to retrieve session list due to system error"},
+    },
 )
 async def list_sessions(api_key: str = Depends(verify_api_key)):
     """List all active interactive sessions with detailed status information"""
@@ -611,67 +560,37 @@ async def list_sessions(api_key: str = Depends(verify_api_key)):
         sessions = command_executor.list_active_sessions()
         logger.info(f"Retrieved {len(sessions)} active sessions")
         return sessions
-        
+
     except Exception as e:
         logger.error(f"Error listing sessions: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Failed to list sessions: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to list sessions: {str(e)}"
+        )
+
 
 @app.get(
-    "/sessions/{session_id}", 
+    "/sessions/{session_id}",
     response_model=SessionInfo,
     summary="Get Session Information",
     description="""
-    **Retrieve detailed information about a specific interactive session.**
-    
-    This endpoint provides comprehensive details about a single interactive session,
-    including its current state, performance metrics, and operational history.
-    
+    **Retrieve detailed information about the active interactive session.**
+
+    With the single-session executor, this endpoint is primarily used to confirm the
+    status of that session, recover its identifier, or review recent activity metadata
+    before sending additional input.
+
     ### Information Provided
-    
-    **Session Identity**
-    - Unique session identifier  
-    - Original command that started the session
-    - Current operational status
-    
-    **Timing Information**
-    - Session creation timestamp
-    - Last activity/interaction timestamp  
-    - Total session duration (calculated)
-    - Activity pattern and frequency
-    
-    **System Integration**
-    - Process ID (PID) for system-level monitoring
-    - Current working directory
-    - Environment variables and context
-    - Resource utilization metrics
-    
-    **Status Details**
-    - Current session state (active, waiting, busy, etc.)
-    - Error conditions and diagnostic information
-    - Performance metrics and resource usage
-    - Child process information
-    
-    ### Use Cases
-    
-    **Session Monitoring**
-    - Check if a specific session is still active and responsive
-    - Monitor session performance and resource usage
-    - Track session activity and interaction patterns
-    - Verify session state before sending input
-    
-    **Debugging and Diagnostics**
-    - Investigate session-related issues or errors
-    - Analyze session performance and bottlenecks
-    - Troubleshoot unresponsive or stuck sessions
-    - Gather information for session optimization
-    
-    **Integration and Automation**
-    - Validate session existence before API calls
-    - Implement session health checks in automated workflows
-    - Build session monitoring and alerting systems
-    - Create session lifecycle management tools
+    - Session identifier and the command that created it
+    - Creation and last-activity timestamps
+    - Current status (active or terminated)
+    - Working directory and process ID when available
+
+    ### Typical Uses
+    - Verify that the session is still alive before issuing new commands
+    - Audit when the session was last used by an automation
+    - Recover the session ID after a workflow interruption
     """,
-    tags=["Session Management"], 
+    tags=["Session Management"],
     responses={
         200: {
             "description": "Session information retrieved successfully",
@@ -684,115 +603,58 @@ async def list_sessions(api_key: str = Depends(verify_api_key)):
                         "created_at": "2024-01-15T10:30:45.123Z",
                         "last_activity": "2024-01-15T10:45:20.456Z",
                         "process_id": 12345,
-                        "working_directory": "/home/user/workspace"
+                        "working_directory": "/home/user/workspace",
                     }
                 }
-            }
+            },
         },
-        401: {
-            "description": "Authentication failed - invalid or missing API key"
-        },
+        401: {"description": "Authentication failed - invalid or missing API key"},
         404: {
             "description": "Session not found - may have been terminated or never existed"
         },
         500: {
             "description": "Failed to retrieve session information due to system error"
-        }
-    }
+        },
+    },
 )
-async def get_session_info(
-    session_id: str,
-    api_key: str = Depends(verify_api_key)
-):
+async def get_session_info(session_id: str, api_key: str = Depends(verify_api_key)):
     """Get detailed information about a specific interactive session"""
     try:
         session_info = command_executor.get_session_info(session_id)
         if not session_info:
             raise HTTPException(status_code=404, detail="Session not found")
-        
+
         logger.info(f"Retrieved session info for {session_id}")
         return session_info
-        
+
     except HTTPException:
         raise
     except Exception as e:
         logger.error(f"Error getting session info: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Failed to get session info: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to get session info: {str(e)}"
+        )
+
 
 @app.delete(
     "/sessions/{session_id}",
-    summary="Terminate Interactive Session", 
+    summary="Terminate Interactive Session",
     description="""
-    **Forcefully terminate a specific interactive command session.**
-    
-    This endpoint cleanly shuts down an active interactive session, terminating
-    the underlying process and cleaning up associated resources.
-    
-    ### Termination Process
-    
-    **Graceful Shutdown**
-    1. Send termination signal (SIGTERM) to the main process
-    2. Wait for graceful shutdown (configurable timeout)
-    3. Terminate child processes if they exist  
-    4. Clean up temporary files and resources
-    5. Remove session from active session list
-    
-    **Forced Termination**
-    If graceful shutdown fails:
-    1. Send kill signal (SIGKILL) to force termination
-    2. Clean up any remaining resources and temporary files
-    3. Log termination details for debugging
-    4. Update session status to 'terminated'
-    
-    ### When to Terminate Sessions
-    
-    **Normal Operations**
-    - Interactive work is complete
-    - Switching to different tools or commands  
-    - Cleaning up before system maintenance
-    - Managing resource usage and session limits
-    
-    **Error Recovery**
-    - Session has become unresponsive or stuck
-    - Process is consuming excessive resources
-    - Session encountered critical errors
-    - Emergency cleanup during system issues
-    
-    **Resource Management**
-    - Too many active sessions consuming resources
-    - Long-running sessions no longer needed
-    - Scheduled cleanup of idle sessions
-    - Preparing for system shutdown or restart
-    
-    ### Important Considerations
-    
-    **Data Loss Prevention**  
-    - **Save Important Work**: Ensure any important data or progress is saved before termination
-    - **Active Transactions**: Database transactions or file operations may be interrupted
-    - **Temporary Files**: Temporary files created by the session will be cleaned up
-    - **Unsaved Changes**: Any unsaved changes in editors or applications will be lost
-    
-    **Process Dependencies**
-    - **Child Processes**: All child processes spawned by the session will also be terminated
-    - **Background Jobs**: Background jobs started within the session may be interrupted  
-    - **Network Connections**: Open network connections will be closed
-    - **File Handles**: Open files will be closed (may cause data loss if not saved)
-    
-    ### Alternative Approaches
-    
-    **Graceful Exit Commands**
-    Instead of forceful termination, consider sending exit commands:
-    - Python: `exit()` or `quit()`
-    - MySQL: `exit;` or `quit;`
-    - SSH: `exit` or logout
-    - Editors: Save and quit commands (`:q` in vim, `Ctrl+X` in nano)
-    
-    **Session Handoff**  
-    For long-running operations, consider:
-    - Moving operations to background processes
-    - Using screen/tmux for persistent sessions
-    - Implementing checkpoint/resume functionality
-    - Saving session state before termination
+    **Forcefully terminate the active interactive command session.**
+
+    Because the executor maintains only a single session at a time, this endpoint
+    releases that slot so another interactive workflow can start. It stops the
+    underlying process and clears executor state.
+
+    ### Typical Uses
+    - Abort an unresponsive interactive session
+    - Replace the current session with a different command
+    - Prepare the system for shutdown or maintenance
+
+    ### Recommended Workflow
+    - Try sending a graceful exit command first (for example `exit()`, `quit`, or `exit`)
+    - Call this endpoint if the process does not exit on its own
+    - Start a new interactive command after the termination succeeds
     """,
     tags=["Session Management"],
     responses={
@@ -804,40 +666,34 @@ async def get_session_info(
                         "message": "Session session_python_abc123 terminated successfully"
                     }
                 }
-            }
+            },
         },
-        401: {
-            "description": "Authentication failed - invalid or missing API key"
-        },
-        404: {
-            "description": "Session not found - may have already been terminated"
-        },
-        500: {
-            "description": "Failed to terminate session due to system error"
-        }
-    }
+        401: {"description": "Authentication failed - invalid or missing API key"},
+        404: {"description": "Session not found - may have already been terminated"},
+        500: {"description": "Failed to terminate session due to system error"},
+    },
 )
-async def terminate_session(
-    session_id: str,
-    api_key: str = Depends(verify_api_key)
-):
+async def terminate_session(session_id: str, api_key: str = Depends(verify_api_key)):
     """Terminate a specific interactive session and clean up resources"""
     try:
         success = command_executor.terminate_session(session_id)
         if not success:
             raise HTTPException(status_code=404, detail="Session not found")
-        
+
         logger.info(f"Terminated session {session_id}")
         return {"message": f"Session {session_id} terminated successfully"}
-        
+
     except HTTPException:
         raise
     except Exception as e:
         logger.error(f"Error terminating session: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Failed to terminate session: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to terminate session: {str(e)}"
+        )
+
 
 @app.get(
-    "/system/status", 
+    "/system/status",
     response_model=SystemStatus,
     summary="System Status and Performance Metrics",
     description="""
@@ -867,11 +723,10 @@ async def terminate_session(
     - I/O performance metrics and disk health indicators
     - Temporary file system usage (if significant)
     
-    **Active Sessions**
-    - Number of currently active interactive command sessions
-    - Session resource utilization and performance impact
-    - Average session duration and activity patterns
-    - Resource consumption per session type
+    **Active Session Monitoring**
+    - Whether the single interactive session slot is currently in use
+    - Resource utilization impact of the active session (when present)
+    - Recent activity timing to help identify idle sessions
     
     **Extended Metrics (when available)**
     - Network interface statistics (bytes/packets sent/received)
@@ -940,13 +795,13 @@ async def terminate_session(
                             "used": 3221225472,
                             "percent": 37.5,
                             "cached": 1073741824,
-                            "buffers": 268435456
+                            "buffers": 268435456,
                         },
                         "disk_usage": {
                             "total": 107374182400,
                             "used": 21474836480,
                             "free": 85899346920,
-                            "percent": 20.0
+                            "percent": 20.0,
                         },
                         "active_sessions": 3,
                         "cpu_usage": {
@@ -954,19 +809,17 @@ async def terminate_session(
                             "user": 15.2,
                             "system": 8.1,
                             "idle": 74.7,
-                            "iowait": 2.0
-                        }
+                            "iowait": 2.0,
+                        },
                     }
                 }
-            }
+            },
         },
-        401: {
-            "description": "Authentication failed - invalid or missing API key"
-        },
+        401: {"description": "Authentication failed - invalid or missing API key"},
         500: {
             "description": "Failed to retrieve system status due to monitoring error"
-        }
-    }
+        },
+    },
 )
 async def get_system_status(api_key: str = Depends(verify_api_key)):
     """Get comprehensive real-time system status and performance metrics"""
@@ -974,51 +827,60 @@ async def get_system_status(api_key: str = Depends(verify_api_key)):
         # Get system uptime
         boot_time = psutil.boot_time()
         uptime_seconds = time.time() - boot_time
-        uptime = str(int(uptime_seconds // 3600)) + "h " + str(int((uptime_seconds % 3600) // 60)) + "m"
-        
+        uptime = (
+            str(int(uptime_seconds // 3600))
+            + "h "
+            + str(int((uptime_seconds % 3600) // 60))
+            + "m"
+        )
+
         # Get load average (Linux/Unix only)
         try:
             load_avg = list(os.getloadavg())
         except (AttributeError, OSError):
             load_avg = [0.0, 0.0, 0.0]
-        
+
         # Get memory usage
         memory = psutil.virtual_memory()
         memory_usage = {
             "total": memory.total,
             "available": memory.available,
             "percent": memory.percent,
-            "used": memory.used
+            "used": memory.used,
         }
-        
+
         # Get disk usage
-        disk = psutil.disk_usage('/')
+        disk = psutil.disk_usage("/")
         disk_usage = {
             "total": disk.total,
             "used": disk.used,
             "free": disk.free,
-            "percent": (disk.used / disk.total) * 100
+            "percent": (disk.used / disk.total) * 100,
         }
-        
+
         # Count active sessions
+        command_executor.cleanup_inactive_sessions()
         active_sessions = len(command_executor.active_sessions)
-        
+
         return SystemStatus(
             uptime=uptime,
             load_average=load_avg,
             memory_usage=memory_usage,
             disk_usage=disk_usage,
-            active_sessions=active_sessions
+            active_sessions=active_sessions,
         )
-        
+
     except Exception as e:
         logger.error(f"Error getting system status: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Failed to get system status: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to get system status: {str(e)}"
+        )
+
 
 @app.post(
     "/quick-commands/yes-no",
     response_model=CommandResponse,
-    summary="Quick Yes/No Response Handler", 
+    summary="Quick Yes/No Response Handler",
     description="""
     **Simplified endpoint for handling common yes/no interactive prompts.**
     
@@ -1135,8 +997,8 @@ async def get_system_status(api_key: str = Depends(verify_api_key)):
                                 "execution_time": 0.045,
                                 "session_id": "session_install_abc123",
                                 "is_interactive": True,
-                                "error_message": None
-                            }
+                                "error_message": None,
+                            },
                         },
                         "confirmation_no": {
                             "summary": "Operation cancelled",
@@ -1146,33 +1008,23 @@ async def get_system_status(api_key: str = Depends(verify_api_key)):
                                 "stdout": "Operation cancelled.\n$ ",
                                 "stderr": "",
                                 "execution_time": 0.032,
-                                "session_id": "session_confirm_def456", 
+                                "session_id": "session_confirm_def456",
                                 "is_interactive": True,
-                                "error_message": None
-                            }
-                        }
+                                "error_message": None,
+                            },
+                        },
                     }
                 }
-            }
+            },
         },
-        400: {
-            "description": "Invalid session ID or request parameters"
-        },
-        401: {
-            "description": "Authentication failed - invalid or missing API key"
-        },
-        404: {
-            "description": "Session not found or not waiting for input"
-        },
-        500: {
-            "description": "Failed to send response to interactive session"
-        }
-    }
+        400: {"description": "Invalid session ID or request parameters"},
+        401: {"description": "Authentication failed - invalid or missing API key"},
+        404: {"description": "Session not found or not waiting for input"},
+        500: {"description": "Failed to send response to interactive session"},
+    },
 )
 async def handle_yes_no_prompt(
-    session_id: str,
-    answer: bool,
-    api_key: str = Depends(verify_api_key)
+    session_id: str, answer: bool, api_key: str = Depends(verify_api_key)
 ):
     """Handle yes/no prompts by sending appropriate response to interactive session"""
     try:
@@ -1180,29 +1032,30 @@ async def handle_yes_no_prompt(
         response = command_executor.send_interactive_input(session_id, response_text)
         logger.info(f"Sent {response_text} to session {session_id}")
         return response
-        
+
     except Exception as e:
         logger.error(f"Error handling yes/no prompt: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Failed to handle yes/no prompt: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to handle yes/no prompt: {str(e)}"
+        )
+
 
 # Error handlers
 @app.exception_handler(ValueError)
 async def validation_exception_handler(request, exc):
-    return JSONResponse(
-        status_code=400,
-        content={"detail": str(exc)}
-    )
+    return JSONResponse(status_code=400, content={"detail": str(exc)})
+
 
 if __name__ == "__main__":
     import uvicorn
-    
-    host = os.getenv('HOST', '0.0.0.0')
-    port = int(os.getenv('PORT', 8000))
-    
+
+    host = os.getenv("HOST", "0.0.0.0")
+    port = int(os.getenv("PORT", 8000))
+
     uvicorn.run(
         "main:app",
         host=host,
         port=port,
         reload=True,
-        log_level=os.getenv('LOG_LEVEL', 'info').lower()
+        log_level=os.getenv("LOG_LEVEL", "info").lower(),
     )
