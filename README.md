@@ -7,7 +7,7 @@ A full-featured FastAPI application that allows a custom GPT to completely contr
 - **FastAPI with Pydantic Validation**: Full-featured REST API with automatic validation and documentation
 - **Interactive Command Support**: Handle commands requiring user input (yes/no prompts, interactive sessions)
 - **Security**: API key authentication, command filtering, and path restrictions
-- **Session Management**: Multi-step operations with session tracking
+- **Session Management**: Single interactive session with persistent state tracking
 - **Real-time System Monitoring**: System status, resource usage, and health checks
 - **Comprehensive Error Handling**: Detailed error reporting and logging
 
@@ -51,9 +51,9 @@ A full-featured FastAPI application that allows a custom GPT to completely contr
 
 ### Session Management
 
-- **GET `/sessions`**: List all active sessions
-- **GET `/sessions/{session_id}`**: Get session information
-- **DELETE `/sessions/{session_id}`**: Terminate a session
+- **GET `/sessions`**: Inspect the current session (if any)
+- **GET `/sessions/{session_id}`**: Get metadata for the active session
+- **DELETE `/sessions/{session_id}`**: Terminate the active session
 
 ### System Information
 
@@ -142,7 +142,7 @@ LOG_LEVEL=info
 3. **Path Restrictions**: Prevent access to sensitive files/directories
 4. **Input Validation**: Pydantic models validate all inputs
 5. **Timeout Protection**: Commands have configurable timeouts
-6. **Session Management**: Isolated interactive sessions
+6. **Session Management**: Single interactive shell enforced for safety
 
 ## GPT Integration
 
@@ -151,7 +151,7 @@ This API is designed to be easily integrated with custom GPTs. The GPT can:
 1. Execute any allowed CLI command
 2. Handle interactive prompts automatically
 3. Monitor system status
-4. Manage multiple concurrent operations
+4. Manage the single interactive session lifecycle
 5. Get detailed error information
 
 ## Development
