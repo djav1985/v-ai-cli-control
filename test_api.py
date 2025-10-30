@@ -146,6 +146,65 @@ def test_single_interactive_session_limit():
         assert delete_response.status_code == 200
 
 
+def test_interactive_input_without_newline():
+    """Ensure interactive input can be sent without automatically appending a newline."""
+
+    start_response = client.post(
+        "/execute",
+        json={"command": "python3 -i -q", "command_type": "interactive"},
+        headers=HEADERS,
+    )
+    assert start_response.status_code == 200
+    start_data = start_response.json()
+    assert start_data["success"] is True
+    session_id = start_data["session_id"]
+    assert session_id
+
+    try:
+        partial_response = client.post(
+            f"/interactive/{session_id}",
+            json={
+                "session_id": session_id,
+                "input_text": "print('A')",
+                "send_newline": False,
+            },
+            headers=HEADERS,
+        )
+        assert partial_response.status_code == 200
+        partial_data = partial_response.json()
+        assert partial_data["success"] is True
+        assert partial_data["is_interactive"] is True
+        partial_output = partial_data.get("stdout", "")
+        assert "A\n" not in partial_output
+        assert partial_output.rstrip().endswith("print('A')")
+
+        execute_response = client.post(
+            f"/interactive/{session_id}",
+            json={
+                "session_id": session_id,
+                "input_text": "",
+                "send_newline": True,
+            },
+            headers=HEADERS,
+        )
+        assert execute_response.status_code == 200
+        execute_data = execute_response.json()
+        assert execute_data["success"] is True
+        assert execute_data["is_interactive"] is True
+        assert "A" in execute_data.get("stdout", "")
+    finally:
+        exit_response = client.post(
+            f"/interactive/{session_id}",
+            json={"session_id": session_id, "input_text": "exit()", "send_newline": True},
+            headers=HEADERS,
+        )
+        assert exit_response.status_code == 200
+        exit_data = exit_response.json()
+        if exit_data["is_interactive"]:
+            delete_response = client.delete(f"/sessions/{session_id}", headers=HEADERS)
+            assert delete_response.status_code == 200
+
+
 if __name__ == "__main__":
     print("V-AI CLI Control API Tests")
     print("=" * 40)
