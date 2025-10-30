@@ -8,6 +8,7 @@ import os
 
 from fastapi.testclient import TestClient
 import main
+from executor import CommandExecutor
 
 API_KEY_VALUE = "test-api-key"
 os.environ.setdefault("API_KEY", API_KEY_VALUE)
@@ -16,6 +17,32 @@ main.API_KEY = API_KEY_VALUE
 # Create test client
 client = TestClient(main.app)
 HEADERS = {"Authorization": f"Bearer {API_KEY_VALUE}"}
+
+
+def test_environment_command_restrictions_whitespace_handling():
+    """Ensure environment lists are stripped and filtered."""
+
+    original_allowed = os.environ.get("ALLOWED_COMMANDS")
+    original_restricted = os.environ.get("RESTRICTED_PATHS")
+
+    try:
+        os.environ["ALLOWED_COMMANDS"] = "ls, pwd"
+        os.environ["RESTRICTED_PATHS"] = "/etc "
+
+        executor = CommandExecutor()
+
+        assert executor._is_command_allowed("pwd") is True
+        assert executor._check_path_restrictions("cat /etc/passwd") is False
+    finally:
+        if original_allowed is None:
+            os.environ.pop("ALLOWED_COMMANDS", None)
+        else:
+            os.environ["ALLOWED_COMMANDS"] = original_allowed
+
+        if original_restricted is None:
+            os.environ.pop("RESTRICTED_PATHS", None)
+        else:
+            os.environ["RESTRICTED_PATHS"] = original_restricted
 
 
 def test_health_check():

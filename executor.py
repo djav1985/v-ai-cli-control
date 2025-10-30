@@ -20,16 +20,19 @@ class CommandExecutor:
         self.active_sessions: Dict[str, Any] = {}
         self.current_session_id: Optional[str] = None
         self.executor = ThreadPoolExecutor(max_workers=5)
-        self.allowed_commands = (
-            os.getenv("ALLOWED_COMMANDS", "").split(",")
-            if os.getenv("ALLOWED_COMMANDS")
-            else None
-        )
-        self.restricted_paths = (
-            os.getenv("RESTRICTED_PATHS", "").split(",")
-            if os.getenv("RESTRICTED_PATHS")
-            else []
-        )
+        allowed_env = os.getenv("ALLOWED_COMMANDS")
+        if allowed_env is not None:
+            allowed_items = [item.strip() for item in allowed_env.split(",")]
+            self.allowed_commands = [item for item in allowed_items if item]
+        else:
+            self.allowed_commands = None
+
+        restricted_env = os.getenv("RESTRICTED_PATHS")
+        if restricted_env is not None:
+            restricted_items = [item.strip() for item in restricted_env.split(",")]
+            self.restricted_paths = [item for item in restricted_items if item]
+        else:
+            self.restricted_paths = []
 
     def _is_command_allowed(self, command: str) -> bool:
         """Check if command is allowed based on configuration"""
