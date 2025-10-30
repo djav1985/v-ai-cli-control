@@ -194,9 +194,43 @@ class CommandRequest(BaseModel):
                 f"This pattern is restricted for security reasons."
             )
 
-        for pattern in dangerous_operator_substrings:
-            if pattern in v:
-                raise_for_pattern(pattern)
+        def find_unquoted_operator(command: str) -> str | None:
+            in_single_quote = False
+            in_double_quote = False
+            i = 0
+            operators = sorted(dangerous_operator_substrings, key=len, reverse=True)
+
+            while i < len(command):
+                char = command[i]
+
+                if char == "'" and not in_double_quote:
+                    in_single_quote = not in_single_quote
+                    i += 1
+                    continue
+
+                if char == '"' and not in_single_quote:
+                    in_double_quote = not in_double_quote
+                    i += 1
+                    continue
+
+                if char == "\\" and not in_single_quote:
+                    # Skip escaped characters when they can affect syntax outside
+                    # of single-quoted literals (where escapes are not processed).
+                    i += 2
+                    continue
+
+                if not in_single_quote and not in_double_quote:
+                    for operator in operators:
+                        if command.startswith(operator, i):
+                            return operator
+
+                i += 1
+
+            return None
+
+        unquoted_operator = find_unquoted_operator(v)
+        if unquoted_operator is not None:
+            raise_for_pattern(unquoted_operator)
 
         if first_token in safe_commands:
             remaining_tokens = tokens[1:]
