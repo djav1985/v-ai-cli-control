@@ -157,6 +157,7 @@ class CommandRequest(BaseModel):
         # Security validation - prevent dangerous command patterns
         separator_patterns = [";", "&&", "||"]
         dangerous_tokens = {">", ">>", "|"}
+        dangerous_operator_substrings = [">>", ">", "|"]
         dangerous_substrings = [
             "`",
             "$(",
@@ -192,6 +193,10 @@ class CommandRequest(BaseModel):
                 f"Command contains potentially dangerous pattern '{pattern}'. "
                 f"This pattern is restricted for security reasons."
             )
+
+        for pattern in dangerous_operator_substrings:
+            if pattern in v:
+                raise_for_pattern(pattern)
 
         if first_token in safe_commands:
             remaining_tokens = tokens[1:]
