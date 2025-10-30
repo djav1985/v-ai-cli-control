@@ -1,6 +1,8 @@
-from typing import Optional, List, Dict, Any, Union
-from pydantic import BaseModel, Field, field_validator, model_validator
+import shlex
 from enum import Enum
+from typing import Any, Dict, List, Optional, Union
+
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 class CommandType(str, Enum):
@@ -141,16 +143,23 @@ class CommandRequest(BaseModel):
         # Remove leading/trailing whitespace
         v = v.strip()
 
+        # Split the command to inspect individual tokens
+        try:
+            tokens = shlex.split(v, posix=True)
+        except ValueError as exc:
+            raise ValueError(f"Invalid command syntax: {exc}") from exc
+
+        if not tokens:
+            raise ValueError("Command cannot be empty")
+
+        first_token = tokens[0]
+
         # Security validation - prevent dangerous command patterns
-        dangerous_patterns = [
-            ";",
-            "&&",
-            "||",
-            ">",
-            ">>",
-            "|",
+        separator_patterns = [";", "&&", "||"]
+        dangerous_tokens = {">", ">>", "|"}
+        dangerous_substrings = [
             "`",
-            "$()",
+            "$(",
             "rm -rf /",
             "dd if=",
             "mkfs",
@@ -158,8 +167,9 @@ class CommandRequest(BaseModel):
             "parted",
         ]
 
-        # Allow safe commands even with potentially dangerous patterns
-        safe_commands = [
+        # Allow safe commands even with potentially dangerous patterns when the
+        # entire command remains simple and free of separators or redirections.
+        safe_commands = {
             "ls",
             "pwd",
             "whoami",
@@ -175,17 +185,39 @@ class CommandRequest(BaseModel):
             "echo",
             "head",
             "tail",
-        ]
+        }
 
-        is_safe_command = any(v.startswith(safe_cmd) for safe_cmd in safe_commands)
+        def raise_for_pattern(pattern: str) -> None:
+            raise ValueError(
+                f"Command contains potentially dangerous pattern '{pattern}'. "
+                f"This pattern is restricted for security reasons."
+            )
 
-        if not is_safe_command:
-            for pattern in dangerous_patterns:
+        if first_token in safe_commands:
+            remaining_tokens = tokens[1:]
+            for token in remaining_tokens:
+                if token in dangerous_tokens or token in separator_patterns:
+                    raise_for_pattern(token)
+            for pattern in dangerous_substrings:
                 if pattern in v:
-                    raise ValueError(
-                        f"Command contains potentially dangerous pattern '{pattern}'. "
-                        f"This pattern is restricted for security reasons."
-                    )
+                    raise_for_pattern(pattern)
+            remainder = v[len(first_token) :]
+            for pattern in separator_patterns:
+                if pattern in remainder:
+                    raise_for_pattern(pattern)
+            return v
+
+        for token in tokens:
+            if token in dangerous_tokens or token in separator_patterns:
+                raise_for_pattern(token)
+
+        for pattern in separator_patterns:
+            if pattern in v:
+                raise_for_pattern(pattern)
+
+        for pattern in dangerous_substrings:
+            if pattern in v:
+                raise_for_pattern(pattern)
 
         return v
 

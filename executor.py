@@ -1,12 +1,14 @@
 import asyncio
-import pexpect
+import logging
+import os
+import shlex
 import time
 import uuid
-import os
-import logging
-from typing import Dict, Optional, Tuple, Any, List
-from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime
+from typing import Any, Dict, List, Optional, Tuple
+
+import pexpect
 
 from models import CommandResponse, SessionInfo
 
@@ -184,8 +186,24 @@ class CommandExecutor:
             if environment:
                 env.update(environment)
 
+            # Parse the command into executable and arguments
+            try:
+                command_parts = shlex.split(command)
+            except ValueError as exc:
+                raise ValueError(f"Failed to parse command: {exc}") from exc
+
+            if not command_parts:
+                raise ValueError("Command cannot be empty")
+
+            executable, *arguments = command_parts
+
             # Start interactive process using pexpect
-            child = pexpect.spawn(command, cwd=working_directory, env=env)
+            child = pexpect.spawn(
+                executable,
+                args=arguments,
+                cwd=working_directory,
+                env=env,
+            )
             child.timeout = 1  # Short timeout for non-blocking reads
 
             # Store session info
