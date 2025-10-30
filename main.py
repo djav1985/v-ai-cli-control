@@ -493,7 +493,7 @@ async def send_interactive_input(
 
     try:
         response = command_executor.send_interactive_input(
-            session_id, request.input_text
+            session_id, request.input_text, send_newline=request.send_newline
         )
         logger.info(f"Interactive input sent successfully: {response.success}")
         return response
@@ -1029,7 +1029,9 @@ async def handle_yes_no_prompt(
     """Handle yes/no prompts by sending appropriate response to interactive session"""
     try:
         response_text = "y" if answer else "n"
-        response = command_executor.send_interactive_input(session_id, response_text)
+        response = command_executor.send_interactive_input(
+            session_id, response_text, send_newline=True
+        )
         logger.info(f"Sent {response_text} to session {session_id}")
         return response
 

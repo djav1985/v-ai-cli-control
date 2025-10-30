@@ -225,7 +225,7 @@ class CommandExecutor:
             )
 
     def send_interactive_input(
-        self, session_id: str, input_text: str
+        self, session_id: str, input_text: str, send_newline: bool = True
     ) -> CommandResponse:
         """Send input to an interactive command session"""
 
@@ -243,7 +243,10 @@ class CommandExecutor:
 
         try:
             # Send input
-            child.sendline(input_text)
+            if send_newline:
+                child.sendline(input_text)
+            else:
+                child.send(input_text)
             session["last_activity"] = datetime.now().isoformat()
 
             # Read response
